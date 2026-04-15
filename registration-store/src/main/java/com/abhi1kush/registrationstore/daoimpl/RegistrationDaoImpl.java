@@ -2,15 +2,19 @@ package com.abhi1kush.registrationstore.daoimpl;
 
 import java.util.Map;
 import java.sql.Timestamp;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.StreamUtils;
 
 import com.abhi1kush.registrationstore.dao.RegistrationDao;
 import com.abhi1kush.registrationstore.exception.RegistrationPersistenceException;
@@ -19,21 +23,8 @@ import com.abhi1kush.registrationstore.valuebeans.RegistrationEntity;
 @Repository
 public class RegistrationDaoImpl implements RegistrationDao {
 	private static final Logger log = LoggerFactory.getLogger(RegistrationDaoImpl.class);
-
-	private static final String INSERT_SQL_POSTGRESQL = """
-			INSERT INTO immutable_registration_requests (
-				request_id, registration_no, roll_no, university, college, source_system, request_payload, created_at
-			) VALUES (
-				:requestId, :registrationNo, :rollNo, :university, :college, :sourceSystem, CAST(:payloadJson AS jsonb), :createdAt
-			)
-			""";
-	private static final String INSERT_SQL_ORACLE = """
-			INSERT INTO immutable_registration_requests (
-				request_id, registration_no, roll_no, university, college, source_system, request_payload, created_at
-			) VALUES (
-				:requestId, :registrationNo, :rollNo, :university, :college, :sourceSystem, :payloadJson, :createdAt
-			)
-			""";
+	private static final String SQL_PATH_POSTGRESQL = "sql/registration/insert-registration-postgresql.sql";
+	private static final String SQL_PATH_ORACLE = "sql/registration/insert-registration-oracle.sql";
 
 	private final NamedParameterJdbcTemplate jdbcTemplate;
 	private final String insertSql;
@@ -42,7 +33,8 @@ public class RegistrationDaoImpl implements RegistrationDao {
 			NamedParameterJdbcTemplate jdbcTemplate,
 			@Value("${app.db.vendor:postgresql}") String dbVendor) {
 		this.jdbcTemplate = jdbcTemplate;
-		this.insertSql = "oracle".equalsIgnoreCase(dbVendor) ? INSERT_SQL_ORACLE : INSERT_SQL_POSTGRESQL;
+		String sqlPath = "oracle".equalsIgnoreCase(dbVendor) ? SQL_PATH_ORACLE : SQL_PATH_POSTGRESQL;
+		this.insertSql = loadSql(sqlPath);
 	}
 
 	@Override
@@ -69,6 +61,15 @@ public class RegistrationDaoImpl implements RegistrationDao {
 					"PERSISTENCE_ERROR",
 					"Unable to persist registration request",
 					e);
+		}
+	}
+
+	private String loadSql(String sqlPath) {
+		try {
+			ClassPathResource resource = new ClassPathResource(sqlPath);
+			return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8).trim();
+		} catch (IOException e) {
+			throw new IllegalStateException("Unable to load SQL from classpath: " + sqlPath, e);
 		}
 	}
 }
