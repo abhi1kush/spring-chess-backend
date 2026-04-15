@@ -1,4 +1,4 @@
-package com.abhi1kush.positionanalyser.web;
+package com.abhi1kush.positionanalyser.api;
 
 import java.util.Map;
 
