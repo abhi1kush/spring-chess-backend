@@ -13,10 +13,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import jakarta.validation.Validator;
+import jakarta.validation.ConstraintViolation;
 
 import com.abhi1kush.registrationstore.dao.RegistrationDao;
 import com.abhi1kush.registrationstore.exception.RegistrationPersistenceException;
 import com.abhi1kush.registrationstore.exception.RegistrationSerializationException;
+import com.abhi1kush.registrationstore.exception.RegistrationValidationException;
+import com.abhi1kush.registrationstore.security.SqlInjectionGuard;
 import com.abhi1kush.registrationstore.valuebeans.CourseBean;
 import com.abhi1kush.registrationstore.valuebeans.RegistrationEntity;
 import com.abhi1kush.registrationstore.valuebeans.RegistrationRequest;
@@ -26,6 +30,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 @ExtendWith(MockitoExtension.class)
 class RegistrationServiceImplTest {
@@ -35,18 +41,24 @@ class RegistrationServiceImplTest {
 
 	@Mock
 	private ObjectMapper objectMapper;
+	@Mock
+	private Validator validator;
+	@Mock
+	private SqlInjectionGuard sqlInjectionGuard;
 
 	private RegistrationServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		service = new RegistrationServiceImpl(registrationDao, objectMapper);
+		service = new RegistrationServiceImpl(registrationDao, objectMapper, validator, sqlInjectionGuard);
 	}
 
 	@Test
 	void createStoresDataAndReturnsSuccessResponse() throws Exception {
 		RegistrationRequest request = validRequest("sf4t4e354dff23");
 		when(objectMapper.writeValueAsString(any())).thenReturn("{\"ok\":true}");
+		when(validator.validate(any())).thenReturn(Set.of());
+		when(sqlInjectionGuard.hasSuspiciousContent(any())).thenReturn(false);
 
 		RegistrationResponse response = service.create(request);
 
@@ -65,6 +77,8 @@ class RegistrationServiceImplTest {
 	@Test
 	void createThrowsSerializationExceptionWhenJsonConversionFails() throws Exception {
 		RegistrationRequest request = validRequest("sf4t4e354dff24");
+		when(validator.validate(any())).thenReturn(Set.of());
+		when(sqlInjectionGuard.hasSuspiciousContent(any())).thenReturn(false);
 		when(objectMapper.writeValueAsString(any())).thenThrow(new JsonProcessingException("boom") {
 			private static final long serialVersionUID = 1L;
 		});
@@ -77,6 +91,8 @@ class RegistrationServiceImplTest {
 	@Test
 	void createPropagatesPersistenceException() throws Exception {
 		RegistrationRequest request = validRequest("sf4t4e354dff25");
+		when(validator.validate(any())).thenReturn(Set.of());
+		when(sqlInjectionGuard.hasSuspiciousContent(any())).thenReturn(false);
 		when(objectMapper.writeValueAsString(any())).thenReturn("{}");
 		doThrow(new RegistrationPersistenceException("PERSISTENCE_ERROR", "Unable to persist registration request", null))
 				.when(registrationDao).insert(any());
@@ -84,6 +100,35 @@ class RegistrationServiceImplTest {
 		assertThatThrownBy(() -> service.create(request))
 				.isInstanceOf(RegistrationPersistenceException.class)
 				.hasMessageContaining("Unable to persist");
+	}
+
+	@Test
+	void createThrowsValidationExceptionWhenBeanValidationFails() {
+		RegistrationRequest request = validRequest("sf4t4e354dff26");
+		@SuppressWarnings("unchecked")
+		ConstraintViolation<RegistrationRequest> violation = org.mockito.Mockito.mock(ConstraintViolation.class);
+		jakarta.validation.Path path = org.mockito.Mockito.mock(jakarta.validation.Path.class);
+		when(path.toString()).thenReturn("registrationNo");
+		when(violation.getPropertyPath()).thenReturn(path);
+		when(violation.getMessage()).thenReturn("must not be blank");
+		Set<ConstraintViolation<RegistrationRequest>> violations = new HashSet<>();
+		violations.add(violation);
+		org.mockito.Mockito.doReturn(violations).when(validator).validate(any());
+
+		assertThatThrownBy(() -> service.create(request))
+				.isInstanceOf(RegistrationValidationException.class)
+				.hasMessageContaining("Validation failed");
+	}
+
+	@Test
+	void createThrowsValidationExceptionWhenSuspiciousContentDetected() {
+		RegistrationRequest request = validRequest("sf4t4e354dff27");
+		when(validator.validate(any())).thenReturn(Set.of());
+		when(sqlInjectionGuard.hasSuspiciousContent(any())).thenReturn(true);
+
+		assertThatThrownBy(() -> service.create(request))
+				.isInstanceOf(RegistrationValidationException.class)
+				.hasMessageContaining("Suspicious input detected");
 	}
 
 	private static RegistrationRequest validRequest(String registrationNo) {

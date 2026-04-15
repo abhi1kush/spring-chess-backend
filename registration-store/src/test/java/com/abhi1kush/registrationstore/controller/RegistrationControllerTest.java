@@ -15,9 +15,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 import com.abhi1kush.registrationstore.exception.RegistrationPersistenceException;
+import com.abhi1kush.registrationstore.exception.RegistrationValidationException;
 import com.abhi1kush.registrationstore.service.RegistrationService;
 import com.abhi1kush.registrationstore.valuebeans.RegistrationResponse;
 
@@ -31,16 +31,15 @@ class RegistrationControllerTest {
 
 	@BeforeEach
 	void setUp() {
-		LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
-		validator.afterPropertiesSet();
 		RegistrationController controller = new RegistrationController(registrationService);
-		this.mockMvc = MockMvcBuilders.standaloneSetup(controller)
-				.setValidator(validator)
-				.build();
+		this.mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 	}
 
 	@Test
 	void createReturnsValidationErrorForInvalidPayload() throws Exception {
+		when(registrationService.create(any()))
+				.thenThrow(new RegistrationValidationException("VALIDATION_ERROR", "Validation failed",
+						java.util.Map.of("registrationNo", "must not be blank", "currentSemCourses", "must not be empty")));
 		mockMvc.perform(post("/api/v1/registrations")
 				.contentType(APPLICATION_JSON)
 				.content("{}"))
@@ -88,6 +87,20 @@ class RegistrationControllerTest {
 				.andExpect(status().isInternalServerError())
 				.andExpect(jsonPath("$.status").value("0"))
 				.andExpect(jsonPath("$.errorCode").value("PERSISTENCE_ERROR"));
+	}
+
+	@Test
+	void createRejectsSuspiciousSqlInput() throws Exception {
+		when(registrationService.create(any()))
+				.thenThrow(new RegistrationValidationException("SECURITY_VALIDATION_ERROR",
+						"Suspicious input detected", java.util.Map.of()));
+		mockMvc.perform(post("/api/v1/registrations")
+				.contentType(APPLICATION_JSON)
+				.content(validRequestJson("sf4t4e354dff31").replace("\"university\":\"university\"",
+						"\"university\":\"UNION SELECT\"")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value("0"))
+				.andExpect(jsonPath("$.errorCode").value("SECURITY_VALIDATION_ERROR"));
 	}
 
 	private static String validRequestJson(String registrationNo) {
