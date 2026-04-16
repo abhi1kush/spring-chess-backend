@@ -1,6 +1,7 @@
 package com.abhi1kush.registrationstore.serviceimpl;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -93,7 +94,7 @@ public class RegistrationServiceImpl implements RegistrationService {
 			throw new RegistrationValidationException(
 					"SECURITY_VALIDATION_ERROR",
 					"Suspicious input detected",
-					Map.of());
+					Collections.emptyMap());
 		}
 	}
 

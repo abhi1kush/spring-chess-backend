@@ -1,5 +1,3 @@
-package com.abhi1kush.registrationstore.exception;
-
 import java.util.Map;
 
 public class RegistrationValidationException extends RegistrationException {
